@@ -12,25 +12,14 @@ public class WebhookTaskRunner implements CommandLineRunner {
     private final WebClient webClient;
 
     public WebhookTaskRunner(WebClient.Builder webClientBuilder) {
-        this.webClient = webClientBuilder.baseUrl("http://localhost:8080").build();
+        // Bajaj API server
+        this.webClient = webClientBuilder.baseUrl("https://bfhldevapigw.healthrx.co.in").build();
     }
 
     @Override
     public void run(String... args) throws Exception {
-        // First SQL query (Question 1)
-        String query1 = "SELECT p.AMOUNT AS SALARY, " +
-                "CONCAT(e.FIRSTNAME, ' ', e.LASTNAME) AS NAME, " +
-                "TIMESTAMPDIFF(YEAR, e.DOB, CURDATE()) AS AGE, " +
-                "d.DEPARTMENTNAME " +
-                "FROM PAYMENTS p " +
-                "JOIN EMPLOYEE e ON p.EMPID = e.EMPID " +
-                "JOIN DEPARTMENT d ON e.DEPARTMENT = d.DEPARTMENTID " +
-                "WHERE p.AMOUNT = ( " +
-                "SELECT MAX(AMOUNT) FROM PAYMENTS WHERE DAY(PAYMENTTIME) <> 1 " +
-                ") AND DAY(p.PAYMENTTIME) <> 1";
-
-        // Second SQL query (Question 2)
-        String query2 = "SELECT " +
+        // ✅ Question 2 SQL query (because regNo ends with 24 → even)
+        String sqlQuery = "SELECT " +
                 "e1.EMPID, " +
                 "e1.FIRSTNAME, " +
                 "e1.LASTNAME, " +
@@ -47,41 +36,55 @@ public class WebhookTaskRunner implements CommandLineRunner {
                 "d.DEPARTMENTNAME " +
                 "ORDER BY e1.EMPID DESC";
 
-        submitSQLQuery(query1);
-        submitSQLQuery(query2);
+        submitSQLQuery(sqlQuery);
+
+        System.out.println("✅ Task completed. Application will now exit.");
     }
 
     private void submitSQLQuery(String sqlQuery) {
-        Map<String, String> requestBody = Map.of(
-                "name", "John Doe",
-                "regNo", "REG12347",
-                "email", "john@example.com"
-        );
+        try {
+            // Step 1: Generate webhook + token
+            Map<String, String> requestBody = Map.of(
+                    "name", "Isha Paradkar",
+                    "regNo", "0002AL221024",
+                    "email", "ishaparadkar12@gmail.com"
+            );
 
-        Map<String, Object> response = webClient.post()
-                .uri("/hiring/generateWebhook/JAVA")
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
+            Map<String, Object> response = webClient.post()
+                    .uri("/hiring/generateWebhook/JAVA")
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
 
-        String webhookUrl = (String) response.get("webhook");
-        String accessToken = (String) response.get("accessToken");
+            if (response == null) {
+                System.err.println("❌ Failed: Empty response from generateWebhook");
+                return;
+            }
 
-        System.out.println("Webhook URL: " + webhookUrl);
-        System.out.println("Access Token: " + accessToken);
+            String webhookUrl = (String) response.get("webhook");
+            String accessToken = (String) response.get("accessToken");
 
-        Map<String, String> finalRequest = Map.of("finalQuery", sqlQuery);
+            System.out.println("Webhook URL: " + webhookUrl);
+            System.out.println("Access Token: " + accessToken);
 
-        Map<String, Object> finalResponse = webClient.post()
-                .uri(webhookUrl)
-                .header("Authorization", "Bearer " + accessToken)
-                .header("Content-Type", "application/json")
-                .bodyValue(finalRequest)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
+            // Step 2: Submit SQL query to returned webhook
+            Map<String, String> finalRequest = Map.of("finalQuery", sqlQuery);
 
-        System.out.println("Submission Response: " + finalResponse);
+            Map<String, Object> finalResponse = webClient.post()
+                    .uri(webhookUrl)
+                    .header("Authorization", accessToken) // ✅ Correct: no "Bearer"
+                    .header("Content-Type", "application/json")
+                    .bodyValue(finalRequest)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            System.out.println("✅ Submission Response: " + finalResponse);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("❌ Error during submission: " + e.getMessage());
+        }
     }
 }
